@@ -1,3 +1,84 @@
-Text file for hw2
+#install megahit, add to PATH
+git clone https://github.com/voutcn/megahit.git
+cd megahit
+make -j 4
+PATH=/home/ubuntu/megahit:$PATH
 
-this file has been changed
+#dl/install quast
+cd ~/
+git clone https://github.com/ablab/quast.git -b release_4.2
+export PYTHONPATH=$(pwd)/quast/libs/
+
+
+#download data
+mkdir ~/work
+cd ~/work
+
+curl -O -L https://s3.amazonaws.com/public.ged.msu.edu/ecoli_ref-5m.fastq.gz
+
+#install trimmomatic, khmer, samtools
+sudo apt-get -y install trimmomatic
+pip install khmer==2.0
+sudo apt-get -y install samtools
+
+#download adapter sequences
+wget https://anonscm.debian.org/cgit/debian-med/trimmomatic.git/plain/adapters/TruSeq3-PE.fa
+
+#gunzip fastq reads
+gunzip ecoli_ref-5m.fastq.gz
+
+#check fastq file
+head -100 ecoli_ref-5m.fastq
+
+#split paired reads
+split-paired-reads.py -1 R1.fastq -2 R2.fastq ecoli_ref-5m.fastq
+
+#run trimmomatic
+TrimmomaticPE R1.fastq R2.fastq \
+    out-R1.fastq orphan1.fastq out-R2.fastq orphan2.fastq \
+    ILLUMINACLIP:TruSeq3-PE.fa:2:40:15 \
+    LEADING:2 TRAILING:2 \
+    SLIDINGWINDOW:4:2 \
+    MINLEN:25
+
+#interleave
+interleave-reads.py out-R1.fastq out-R2.fastq > top-pe.fq
+
+#assemble
+megahit --12 top-pe.fq -r orphan1.fastq,orphan2.fastq -o q-ecoli
+
+#evaluate
+python2.7 ~/quast/quast.py ~/work/q-ecoli/final.contigs.fa -o q-ecoli_report
+
+cd q-ecoli_report
+
+ls
+
+cat report.txt
+All statistics are based on contigs of size >= 500 bp, unless otherwise noted (e.g., "# contigs (>= 0 bp)" and "Total length (>= 0 b
+p)" include all contigs).
+
+Assembly                    final.contigs
+# contigs (>= 0 bp)         117
+# contigs (>= 1000 bp)      93
+# contigs (>= 5000 bp)      69
+# contigs (>= 10000 bp)     64
+# contigs (>= 25000 bp)     52
+# contigs (>= 50000 bp)     32
+Total length (>= 0 bp)      4577092
+Total length (>= 1000 bp)   4566004
+Total length (>= 5000 bp)   4508060
+Total length (>= 10000 bp)  4470849
+Total length (>= 25000 bp)  4295882
+Total length (>= 50000 bp)  3578702
+# contigs                   102
+Largest contig              246618
+Total length                4572220
+GC (%)                      50.74
+N50                         105708
+N75                         53842
+L50                         15
+L75                         30
+# N's per 100 kbp           0.00
+
+#These stats are nearly identical to those obtained for the previous assembly which was not quality trimmed. The trimmomatic output indicated that very few reads were removed based on our very low quality value threshold (2). It is possible that if we had a higher minimum QV (such as 10 or 20) that more reads would be removed and the assembly would be different.
